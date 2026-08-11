@@ -1,105 +1,84 @@
-#!/bin/bash
-# ESP32-P4 C6 ESP-NOW Firmware Flasher
-# Usage: ./flash_c6_firmware.sh /dev/cu.wchusbserialXXXX
+#!/usr/bin/env bash
+# Install the matched ESP32-C6 ESP-NOW firmware through the ESP32-P4 OTA host.
 
-set -e
+set -euo pipefail
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[1;33m'
+readonly NC='\033[0m'
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly PORT="${1:-}"
+readonly BACKUP_FILE="$SCRIPT_DIR/p4-flash-backup.bin"
 
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PORT=$1
-
-if [ -z "$PORT" ]; then
-    echo -e "${RED}Error: Serial port not specified${NC}"
-    echo "Usage: $0 /dev/cu.wchusbserialXXXX"
+if [[ -z "$PORT" ]]; then
+    printf "%bError: serial port not specified%b\n" "$RED" "$NC"
+    echo "Usage: $0 /dev/ttyACM0"
     exit 1
 fi
 
-echo -e "${GREEN}=== ESP32-P4 C6 ESP-NOW Firmware Flasher ===${NC}"
-echo ""
-echo "Port: $PORT"
-echo "Firmware: network_adapter.bin (1.1MB, ESP-NOW enabled)"
-echo "Installing Firmware Version: 2.6.7 (Official)"
-echo ""
-
-# Check if firmware exists
-if [ ! -f "$SCRIPT_DIR/slave_firmware/network_adapter.bin" ]; then
-    echo -e "${RED}Error: network_adapter.bin not found!${NC}"
+if ! command -v python >/dev/null 2>&1; then
+    printf "%bError: python was not found.%b\n" "$RED" "$NC"
     exit 1
 fi
 
-# Check if esptool is available
-if ! command -v esptool.py &> /dev/null; then
-    echo -e "${RED}Error: esptool.py not found. Please install ESP-IDF.${NC}"
+if ! python -m esptool version >/dev/null 2>&1; then
+    printf "%bError: the Python esptool module was not found.%b\n" "$RED" "$NC"
+    echo "Install ESP-IDF or run: python -m pip install esptool"
     exit 1
 fi
 
-echo -e "${YELLOW}Step 1/5: Preparing...${NC}"
 cd "$SCRIPT_DIR"
+printf "%b=== ESP32-P4/C6 ESP-NOW Enabler ===%b\n" "$GREEN" "$NC"
+echo "Port: $PORT"
+echo "ESP-Hosted: custom 2.7.0 (dd95bdf3316fc8c6110b387855033a26c0aa2447)"
+echo
 
-# --- BACKUP SECTION ---
-echo ""
-echo -e "${YELLOW}Would you like to BACKUP your current P4 firmware before flashing? (y/n)${NC}"
+echo "Verifying coordinated release artifacts..."
+python update_firmware.py
+
+has_backup=false
+printf "\n%bBack up the first 8 MiB of P4 flash before continuing? [Y/n] %b" "$YELLOW" "$NC"
 read -r response
-if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
-    echo -e "${YELLOW}Backing up 4MB from address 0x10000 to 'backup_app.bin'...${NC}"
-    python -m esptool --chip esp32p4 -p "$PORT" -b 460800 --before default_reset --after hard_reset read_flash 0x10000 0x400000 backup_app.bin
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}Backup successful! Saved to backup_app.bin${NC}"
-        HAS_BACKUP=true
-    else
-        echo -e "${RED}Backup failed! Continuing without backup...${NC}"
-        HAS_BACKUP=false
-    fi
-else
-    echo "Skipping backup."
-    HAS_BACKUP=false
+if [[ ! "$response" =~ ^([nN]|[nN][oO])$ ]]; then
+    echo "Place the P4 in download mode now."
+    read -r -p "Press Enter when the board is ready... "
+    python -m esptool --chip esp32p4 -p "$PORT" -b 460800 \
+        --before default_reset --after hard_reset \
+        read_flash 0x0 0x800000 "$BACKUP_FILE"
+    printf "%bBackup saved to %s%b\n" "$GREEN" "$BACKUP_FILE" "$NC"
+    has_backup=true
 fi
-echo ""
-# ----------------------
 
-echo -e "${YELLOW}Step 2/5: Flashing storage partition (0x410000)...${NC}"
-python -m esptool --chip esp32p4 -p "$PORT" -b 460800 --before default_reset --after hard_reset write_flash 0x410000 binaries/storage.bin
+echo
+echo "Place the P4 in download mode for the OTA installer."
+read -r -p "Press Enter when the board is ready... "
 
-echo -e "${YELLOW}Step 3/5: Flashing OTA host firmware...${NC}"
-python -m esptool --chip esp32p4 -p "$PORT" -b 460800 --before default_reset --after hard_reset write_flash \
+python -m esptool --chip esp32p4 -p "$PORT" -b 460800 \
+    --before default_reset --after hard_reset write_flash \
     0x2000 binaries/bootloader.bin \
     0x8000 binaries/partition-table.bin \
     0xd000 binaries/ota_data_initial.bin \
-    0x10000 modified_ota_host/host_performs_slave_ota.bin
+    0x10000 modified_ota_host/host_performs_slave_ota.bin \
+    0x410000 binaries/storage.bin
 
-echo ""
-echo -e "${GREEN}✅ Flash complete!${NC}"
-echo ""
-echo -e "${YELLOW}Step 4/5: Press RESET button on your board${NC}"
-echo ""
-echo "Expected output:"
-echo "  - FORCING Slave OTA update"
-echo "  - Using LittleFS OTA method"
-echo "  - Slave firmware version: 2.6.7"
-echo ""
-echo -e "${GREEN}ESP-NOW is now enabled on your ESP32-C6!${NC}"
+printf "\n%bOTA installer written.%b\n" "$GREEN" "$NC"
+echo "Reset the board and monitor its serial output until it reports that the"
+echo "slave OTA completed and the C6 rebooted."
 
-# --- RESTORE SECTION ---
-if [ "$HAS_BACKUP" = true ]; then
-    echo ""
-    echo -e "${YELLOW}Step 5/5: Restore Backup${NC}"
-    echo "Do you want to RESTORE your original firmware now? (y/n)"
-    read -r response
-    if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
-        echo -e "${YELLOW}Restoring 'backup_app.bin' to 0x10000...${NC}"
-        python -m esptool --chip esp32p4 -p "$PORT" -b 460800 --before default_reset --after hard_reset write_flash 0x10000 backup_app.bin
-        if [ $? -eq 0 ]; then
-            echo -e "${GREEN}Restore successful! Your original app is back.${NC}"
-        else
-            echo -e "${RED}Restore failed! You may need to re-flash your original app manually.${NC}"
-        fi
+if [[ "$has_backup" == true ]]; then
+    echo
+    printf "%bRestore the original P4 flash only after C6 OTA completes.%b\n" "$YELLOW" "$NC"
+    read -r -p "Restore $BACKUP_FILE now? [y/N] " response
+    if [[ "$response" =~ ^([yY]|[yY][eE][sS])$ ]]; then
+        echo "Place the P4 in download mode again."
+        read -r -p "Press Enter when the board is ready... "
+        python -m esptool --chip esp32p4 -p "$PORT" -b 460800 \
+            --before default_reset --after hard_reset \
+            write_flash 0x0 "$BACKUP_FILE"
+        printf "%bOriginal P4 flash restored.%b\n" "$GREEN" "$NC"
     else
-        echo "Keeping OTA host firmware. You can restore later using:"
-        echo "esptool.py --chip esp32p4 -p $PORT write_flash 0x10000 backup_app.bin"
+        echo "Restore later with:"
+        echo "python -m esptool --chip esp32p4 -p '$PORT' -b 460800 write_flash 0x0 '$BACKUP_FILE'"
     fi
 fi
-# -----------------------
