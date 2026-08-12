@@ -23,8 +23,8 @@ so this step does not depend on a board-specific filesystem offset.
 - LittleFS image containing the matched ESP32-C6 firmware
 - Generic and Waveshare P4 MicroPython images, each with and without ESP-NOW
 - Validated ESP32-C6 ESP-NOW firmware
-- SHA-256 values embedded in `enable_espnow.py`; every image is checked before
-  the first write
+- Artifact sizes and SHA-256 values recorded in `firmware-manifest.json`; every
+  image is checked before the first write
 
 The package was hardware-validated with ESP-IDF 5.5.1 and the custom
 ESP-Hosted 2.7.0 fork at commit

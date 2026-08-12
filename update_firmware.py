@@ -4,20 +4,14 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 import sys
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
-ESP_HOSTED_COMMIT = "dd95bdf3316fc8c6110b387855033a26c0aa2447"
-ARTIFACTS = {
-    "slave_firmware/network_adapter.bin": "6d1f4850000c418767c1d79313db044402804e13465908ccbadd9bb97e1a5642",
-    "binaries/storage.bin": "b2d36ded17aeff5c36fc2d472761f4e0f3e91d7fa7734094ba5d4f864a4e0cea",
-    "binaries/bootloader.bin": "6634b61e3f8243ccfa2951d5a148eb927c7adad111a4b98a0de490823179d4da",
-    "binaries/partition-table.bin": "83f9e26a243bbbb4942757d42a0bf61742cfbb810ae46ca46de8a00ee56b2003",
-    "binaries/ota_data_initial.bin": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f",
-    "modified_ota_host/host_performs_slave_ota.bin": "8f7a07357e365f57aefacdba111ef106179d9f8b8b2c5a5f8b45e62f31140feb",
-}
+PACKAGE_DIR = PACKAGE_ROOT / "packages" / "esp32-p4-firmware-installer"
+MANIFEST_PATH = PACKAGE_DIR / "firmware-manifest.json"
 
 
 def sha256(path: Path) -> str:
@@ -29,23 +23,30 @@ def sha256(path: Path) -> str:
 
 
 def main() -> int:
-    print(f"ESP-Hosted source: {ESP_HOSTED_COMMIT}")
+    with MANIFEST_PATH.open(encoding="utf-8") as manifest_file:
+        manifest = json.load(manifest_file)
+
+    print(f"ESP-Hosted source: {manifest['sources']['esp_hosted']['commit']}")
     valid = True
 
-    for relative_path, expected_hash in ARTIFACTS.items():
-        path = PACKAGE_ROOT / relative_path
-        if not path.is_file():
-            print(f"MISSING  {relative_path}")
+    for source_path, package_path in manifest["provenance_copies"].items():
+        source = PACKAGE_ROOT / source_path
+        packaged = PACKAGE_DIR / package_path
+        if not source.is_file() or not packaged.is_file():
+            print(f"MISSING  {source_path} or {package_path}")
             valid = False
             continue
 
-        actual_hash = sha256(path)
-        if actual_hash == expected_hash:
-            print(f"OK       {relative_path}")
+        expected_hash = manifest["artifacts"][package_path]["sha256"]
+        source_hash = sha256(source)
+        packaged_hash = sha256(packaged)
+        if source_hash == packaged_hash == expected_hash:
+            print(f"OK       {source_path}")
         else:
-            print(f"INVALID  {relative_path}")
+            print(f"INVALID  {source_path}")
             print(f"  expected: {expected_hash}")
-            print(f"  actual:   {actual_hash}")
+            print(f"  source:   {source_hash}")
+            print(f"  packaged: {packaged_hash}")
             valid = False
 
     if not valid:

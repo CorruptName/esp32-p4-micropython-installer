@@ -1,8 +1,13 @@
-# ESP32-P4/C6 ESP-NOW Enabler
+# ESP32-P4 MicroPython Installer
 
-This repository installs the ESP32-C6 half of the ESP-NOW proxy used by the
-matching ESP32-P4 host firmware. The P4 and C6 communicate over ESP-Hosted's
-SDIO peer-data channel, while applications use the standard ESP-IDF or
+This is the integration and release repository for coordinated ESP32-P4
+MicroPython and ESP32-C6 radio firmware. It provides one installer for supported
+boards, pins the source revisions used by every binary, verifies artifact
+identity, and publishes ready-to-run Windows and Linux packages.
+
+The optional ESP-NOW flow installs the ESP32-C6 half of the ESP-NOW proxy used
+by the matching ESP32-P4 host firmware. The P4 and C6 communicate over
+ESP-Hosted's SDIO peer-data channel, while applications use the standard
 MicroPython ESP-NOW API on the P4.
 
 ## Compatibility
@@ -69,9 +74,13 @@ complete P4 flash before writing the selected merged image, deleting any
 existing P4 applications, files, and settings. Esptool detects the installed
 flash capacity, so no board-specific filesystem erase range is required.
 
-The distributable archive is `packages/esp32-p4-firmware-installer.zip`
-(7,635,850 bytes, SHA-256
-`39b5c20bbe4b74c3088796cf5a688d5f4dbf38c39e34ddb198d42bfae241ea7c`).
+Download `esp32-p4-firmware-installer.zip` and its checksum from the
+[latest GitHub Release](https://github.com/CorruptName/esp32-p4-micropython-installer/releases/latest).
+Tagged releases are verified and packaged automatically by the release
+workflow.
+
+Source revisions, board mappings, artifact sizes, and SHA-256 hashes are pinned
+in `packages/esp32-p4-firmware-installer/firmware-manifest.json`.
 
 Prerequisites:
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -12,18 +13,11 @@ import time
 
 
 PACKAGE_DIR = Path(__file__).resolve().parent
-ARTIFACTS = {
-    "firmware/installer/bootloader.bin": "6634b61e3f8243ccfa2951d5a148eb927c7adad111a4b98a0de490823179d4da",
-    "firmware/installer/partition-table.bin": "83f9e26a243bbbb4942757d42a0bf61742cfbb810ae46ca46de8a00ee56b2003",
-    "firmware/installer/ota_data_initial.bin": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f",
-    "firmware/installer/host_performs_slave_ota.bin": "8f7a07357e365f57aefacdba111ef106179d9f8b8b2c5a5f8b45e62f31140feb",
-    "firmware/installer/storage.bin": "b2d36ded17aeff5c36fc2d472761f4e0f3e91d7fa7734094ba5d4f864a4e0cea",
-    "firmware/c6/network_adapter.bin": "6d1f4850000c418767c1d79313db044402804e13465908ccbadd9bb97e1a5642",
-    "firmware/p4/esp32-p4.bin": "d91e15a7d883d16ea6a85812da7328f39ed06bc1fb34a635977e476cd0bc80dc",
-    "firmware/p4/esp32-p4-espnow.bin": "da73a9dada74c25ebc4df85f0ffe3dcffa9fade613e9d8bbff996e51757cce13",
-    "firmware/p4/waveshare-esp32-p4-4.3.bin": "56da0e5e747b76e98e20cce321c62d0a46516fc542195aee06fd51cf961fb4ae",
-    "firmware/p4/waveshare-esp32-p4-4.3-espnow.bin": "de15ba706122ad50403ead62a817ab4303a277e6ba94c7f5b3c8b0e3727dbff3",
-}
+MANIFEST_PATH = PACKAGE_DIR / "firmware-manifest.json"
+with MANIFEST_PATH.open(encoding="utf-8") as manifest_file:
+    MANIFEST = json.load(manifest_file)
+
+ARTIFACTS = MANIFEST["artifacts"]
 INSTALLER_IMAGES = (
     ("0x2000", "firmware/installer/bootloader.bin"),
     ("0x8000", "firmware/installer/partition-table.bin"),
@@ -31,18 +25,7 @@ INSTALLER_IMAGES = (
     ("0x10000", "firmware/installer/host_performs_slave_ota.bin"),
     ("0x410000", "firmware/installer/storage.bin"),
 )
-DEVICES = {
-    "dev": {
-        "label": "ESP32-P4 Dev",
-        "standard": "firmware/p4/esp32-p4.bin",
-        "espnow": "firmware/p4/esp32-p4-espnow.bin",
-    },
-    "waveshare": {
-        "label": 'ESP32-P4 Waveshare 4.3"',
-        "standard": "firmware/p4/waveshare-esp32-p4-4.3.bin",
-        "espnow": "firmware/p4/waveshare-esp32-p4-4.3-espnow.bin",
-    },
-}
+DEVICES = MANIFEST["boards"]
 REQUIRED_MARKERS = {
     "C6_ELF_IDENTITY_VERIFIED",
     "C6_ESPNOW_VERIFIED",
@@ -65,15 +48,17 @@ def sha256(path: Path) -> str:
 
 def verify_artifacts() -> None:
     print("Verifying bundled firmware...")
-    for name, expected_hash in ARTIFACTS.items():
+    for name, metadata in ARTIFACTS.items():
         path = PACKAGE_DIR / name
         if not path.is_file():
             raise RuntimeError(f"Missing bundled firmware: {name}")
+        if path.stat().st_size != metadata["size"]:
+            raise RuntimeError(f"Size mismatch for {name}")
         actual_hash = sha256(path)
-        if actual_hash != expected_hash:
+        if actual_hash != metadata["sha256"]:
             raise RuntimeError(
                 f"SHA-256 mismatch for {name}\n"
-                f"  expected: {expected_hash}\n"
+                f"  expected: {metadata['sha256']}\n"
                 f"  actual:   {actual_hash}"
             )
         print(f"  OK  {name}")
