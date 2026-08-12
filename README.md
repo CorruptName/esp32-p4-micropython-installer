@@ -82,28 +82,21 @@ workflow.
 Source revisions, board mappings, artifact sizes, and SHA-256 hashes are pinned
 in `packages/esp32-p4-firmware-installer/firmware-manifest.json`.
 
-Prerequisites:
-
-- Python with the `esptool` module installed
-- A data-capable USB connection to the ESP32-P4 USB serial/JTAG port
-- The P4 serial port name
-
-On Linux, macOS, or WSL with the serial device passed through:
+On Linux:
 
 ```bash
-chmod +x flash_c6_firmware.sh
-./flash_c6_firmware.sh /dev/ttyACM0
+cd packages/esp32-p4-firmware-installer
+chmod +x install_firmware.sh
+./install_firmware.sh
 ```
 
-The script backs up the complete 32 MiB P4 flash before installing the
-temporary OTA application. After the C6 update completes, the P4 restarts and
-performs a second verification phase. Restore the original P4 firmware only
-after the serial log reports both `C6_ELF_IDENTITY_VERIFIED` and
-`C6_ESPNOW_VERIFIED`. Keep the backup until the normal P4 firmware boots
-successfully.
+On Windows, run `install_firmware.bat` from the same package directory. The
+installer provisions the selected P4 MicroPython image and optionally updates
+and verifies the matched C6 firmware first. It does not back up or restore
+existing P4 flash.
 
 The board must be placed in its download/boot mode before each P4 flash or
-restore operation. The script never flashes the C6 directly; the temporary P4
+provisioning operation. The installer never flashes the C6 directly; the temporary P4
 application transfers `network_adapter.bin` to the C6 over SDIO.
 
 ## Expected OTA Log
@@ -125,8 +118,8 @@ C6 ESP-NOW installation completed successfully
 
 If identity or ESP-NOW verification fails, the verification marker remains set
 and the temporary P4 application will retry verification on its next boot. Do
-not restore the P4 backup or report installation success from the earlier
-`OTA completed successfully` message alone.
+not report installation success from the earlier `OTA completed successfully`
+message alone.
 
 After restoring and booting the matched MicroPython build, verify the standard
 API rather than relying only on a version string:
@@ -169,20 +162,6 @@ generic parse failure.
 The upstream example's LittleFS cleanup hook may remove `temp_littlefs` before
 the image target consumes it. If that occurs, remove the component `POST_BUILD`
 cleanup command for the packaging build, then clean up the directory manually.
-
-## Recovery
-
-If OTA fails, do not erase the board. Re-enter P4 download mode and restore the
-backup made by the script:
-
-```bash
-python -m esptool --chip esp32p4 -p /dev/ttyACM0 -b 460800 \
-  --before default_reset --after hard_reset write_flash 0x0 p4-flash-backup.bin
-```
-
-The custom C6 firmware is not an official Espressif release. Restoring P4 flash
-does not roll back the C6; a known-good C6 image must be transferred through a
-compatible ESP-Hosted OTA host to perform that rollback.
 
 ## License
 

@@ -43,7 +43,7 @@ Requirements:
 Run:
 
 ```powershell
-.\flash_and_restore.bat
+.\install_firmware.bat
 ```
 
 The optional command-line form skips menus when automating or recovering:
@@ -57,8 +57,8 @@ python enable_espnow.py COM10 --device waveshare --espnow yes
 Run:
 
 ```bash
-chmod +x flash_and_restore.sh
-./flash_and_restore.sh
+chmod +x install_firmware.sh
+./install_firmware.sh
 ```
 
 If serial access is denied, add your user to the distribution's serial-port
@@ -78,7 +78,7 @@ An ESP-NOW installation has four physical steps:
   needed. It monitors the log for up to 120 seconds.
 3. Only after all C6 checks pass, put the P4 in download mode again. The serial
   monitor is closed first, then the same new-port detection finds the bootloader
-  before restoring the bundled MicroPython firmware.
+  before provisioning the bundled MicroPython firmware.
 4. Disconnect all power from the board, wait a few seconds, then reconnect the
   Serial UART USB port. A complete power cycle ensures the P4, C6, USB, and
   SDIO state are initialized cleanly before using MicroPython.
@@ -111,15 +111,7 @@ python enable_espnow.py COM10 --device waveshare --espnow yes --verify-only
 ```
 
 After successful verification, the resume command continues to the normal P4
-restore gate. To skip C6 verification and restore only the bundled MicroPython
-image, put the P4 in download mode and run:
-
-```powershell
-python enable_espnow.py COM10 --device waveshare --espnow yes --restore-only
-```
-
-The restore path verifies every bundled image, erases the complete P4 flash,
-and then writes the selected P4 image. It does not change the C6 firmware.
+provisioning stage. There is no backup or restore mode.
 
 Use `--dry-run` to verify all files and print both esptool commands without
 opening the serial port:

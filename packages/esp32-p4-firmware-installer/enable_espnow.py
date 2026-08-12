@@ -299,14 +299,9 @@ def parse_args() -> argparse.Namespace:
         help="Whether to install ESP-NOW support; omit it to be prompted",
     )
     parser.add_argument(
-        "--restore-only",
-        action="store_true",
-        help="Skip C6 installation and restore the bundled P4 MicroPython image",
-    )
-    parser.add_argument(
         "--verify-only",
         action="store_true",
-        help="Monitor an already-flashed installer, then restore P4 MicroPython",
+        help="Resume C6 verification, then provision P4 MicroPython",
     )
     parser.add_argument(
         "--dry-run",
@@ -325,9 +320,6 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     try:
-        if args.restore_only and args.verify_only:
-            raise RuntimeError("--restore-only and --verify-only cannot be combined.")
-
         device_key = choose_device(args.device)
         port = args.port or ("<selected-port>" if args.dry_run else choose_port(None))
         enable_espnow = choose_espnow(args.espnow)
@@ -348,7 +340,7 @@ def main() -> int:
             if not args.dry_run:
                 print("The temporary installer must already be flashed.")
                 monitor_verification(port, args.timeout, prompt_for_reset=True)
-        elif enable_espnow and not args.restore_only:
+        elif enable_espnow:
             installer_port = port
             if not args.dry_run:
                 installer_port = wait_for_download_mode(
@@ -363,18 +355,18 @@ def main() -> int:
                 )
                 monitor_verification(port, args.timeout, prompt_for_reset=True)
 
-        restore_port = port
+        provision_port = port
         if not args.dry_run:
             stage = "Stage 2/2" if enable_espnow else "Firmware flash"
-            restore_port = wait_for_download_mode(
+            provision_port = wait_for_download_mode(
                 port,
                 f"{stage}: flash the selected P4 MicroPython firmware.\n"
                 "Put the P4 back in download mode now."
             )
         print("Erasing the complete P4 flash before provisioning firmware...")
-        run_flash(esptool_erase_command(restore_port), args.dry_run)
-        restore_command = esptool_command(restore_port, (("0x0", p4_image),))
-        run_flash(restore_command, args.dry_run)
+        run_flash(esptool_erase_command(provision_port), args.dry_run)
+        provision_command = esptool_command(provision_port, (("0x0", p4_image),))
+        run_flash(provision_command, args.dry_run)
 
         if not args.dry_run:
             print()
