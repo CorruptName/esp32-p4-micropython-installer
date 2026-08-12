@@ -13,6 +13,7 @@ import zipfile
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = REPOSITORY_ROOT / "packages" / "esp32-p4-firmware-installer"
 MANIFEST_PATH = PACKAGE_ROOT / "firmware-manifest.json"
+TEXT_SUFFIXES = {".bat", ".json", ".md", ".py", ".sh", ".txt"}
 
 
 def sha256(path: Path) -> str:
@@ -43,12 +44,22 @@ def verify_artifacts(manifest: dict) -> None:
 
 def package_files() -> list[Path]:
     return sorted(
-        path
-        for path in PACKAGE_ROOT.rglob("*")
-        if path.is_file()
-        and "__pycache__" not in path.parts
-        and path.suffix != ".pyc"
+        (
+            path
+            for path in PACKAGE_ROOT.rglob("*")
+            if path.is_file()
+            and "__pycache__" not in path.parts
+            and path.suffix != ".pyc"
+        ),
+        key=lambda path: path.relative_to(PACKAGE_ROOT).parts,
     )
+
+
+def archive_bytes(path: Path) -> bytes:
+    data = path.read_bytes()
+    if path.suffix in TEXT_SUFFIXES:
+        return data.replace(b"\r\n", b"\n")
+    return data
 
 
 def build_archive(manifest: dict) -> tuple[Path, Path]:
@@ -57,17 +68,15 @@ def build_archive(manifest: dict) -> tuple[Path, Path]:
     checksum_path = archive_path.with_suffix(archive_path.suffix + ".sha256")
     archive_path.unlink(missing_ok=True)
 
-    with zipfile.ZipFile(
-        archive_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
-    ) as archive:
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_STORED) as archive:
         for path in package_files():
             relative_path = path.relative_to(PACKAGE_ROOT).as_posix()
             archive_name = f"{release['package_directory']}/{relative_path}"
             info = zipfile.ZipInfo(archive_name, date_time=(1980, 1, 1, 0, 0, 0))
-            info.compress_type = zipfile.ZIP_DEFLATED
+            info.compress_type = zipfile.ZIP_STORED
             info.external_attr = ((0o755 if path.suffix == ".sh" else 0o644) & 0xFFFF) << 16
             info.create_system = 3
-            archive.writestr(info, path.read_bytes(), compresslevel=9)
+            archive.writestr(info, archive_bytes(path))
 
     archive_hash = sha256(archive_path)
     checksum_path.write_text(
