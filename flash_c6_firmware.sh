@@ -10,6 +10,7 @@ readonly NC='\033[0m'
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PORT="${1:-}"
 readonly BACKUP_FILE="$SCRIPT_DIR/p4-flash-backup.bin"
+readonly P4_FLASH_SIZE=0x2000000
 
 if [[ -z "$PORT" ]]; then
     printf "%bError: serial port not specified%b\n" "$RED" "$NC"
@@ -37,18 +38,13 @@ echo
 echo "Verifying coordinated release artifacts..."
 python update_firmware.py
 
-has_backup=false
-printf "\n%bBack up the first 8 MiB of P4 flash before continuing? [Y/n] %b" "$YELLOW" "$NC"
-read -r response
-if [[ ! "$response" =~ ^([nN]|[nN][oO])$ ]]; then
-    echo "Place the P4 in download mode now."
-    read -r -p "Press Enter when the board is ready... "
-    python -m esptool --chip esp32p4 -p "$PORT" -b 460800 \
-        --before default_reset --after hard_reset \
-        read_flash 0x0 0x800000 "$BACKUP_FILE"
-    printf "%bBackup saved to %s%b\n" "$GREEN" "$BACKUP_FILE" "$NC"
-    has_backup=true
-fi
+echo "Place the P4 in download mode to back up its complete 32 MiB flash."
+read -r -p "Press Enter when the board is ready... "
+python -m esptool --chip esp32p4 -p "$PORT" -b 460800 \
+    --before default_reset --after hard_reset \
+    read_flash 0x0 "$P4_FLASH_SIZE" "$BACKUP_FILE"
+printf "%bBackup saved to %s%b\n" "$GREEN" "$BACKUP_FILE" "$NC"
+has_backup=true
 
 echo
 echo "Place the P4 in download mode for the OTA installer."
@@ -64,13 +60,16 @@ python -m esptool --chip esp32p4 -p "$PORT" -b 460800 \
 
 printf "\n%bOTA installer written.%b\n" "$GREEN" "$NC"
 echo "Reset the board and monitor its serial output until it reports that the"
-echo "slave OTA completed and the C6 rebooted."
+echo "slave OTA completed, then wait through the second verification boot."
+echo "Do not restore the P4 until the log reports both:"
+echo "  C6_ELF_IDENTITY_VERIFIED"
+echo "  C6_ESPNOW_VERIFIED"
 
 if [[ "$has_backup" == true ]]; then
     echo
-    printf "%bRestore the original P4 flash only after C6 OTA completes.%b\n" "$YELLOW" "$NC"
-    read -r -p "Restore $BACKUP_FILE now? [y/N] " response
-    if [[ "$response" =~ ^([yY]|[yY][eE][sS])$ ]]; then
+    printf "%bRestore only after both C6 verification markers appear.%b\n" "$YELLOW" "$NC"
+    read -r -p "Type VERIFIED after both markers, or press Enter to restore later: " response
+    if [[ "$response" == "VERIFIED" ]]; then
         echo "Place the P4 in download mode again."
         read -r -p "Press Enter when the board is ready... "
         python -m esptool --chip esp32p4 -p "$PORT" -b 460800 \

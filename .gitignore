@@ -1,3 +1,6 @@
 .DS_Store
 *.log
 backup_app.bin
+p4-flash-backup.bin
+__pycache__/
+*.pyc
