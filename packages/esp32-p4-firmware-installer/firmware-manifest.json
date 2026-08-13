@@ -24,7 +24,7 @@
     },
     "lvgl_micropython": {
       "repository": "https://github.com/CorruptName/lvgl_micropython",
-      "commit": "6eed4af1050cdd06a0d7b6fe32ea904260f5a255"
+      "commit": "d4af9de30611c338665a5727b91d0a4c68362144"
     }
   },
   "c6": {
@@ -80,8 +80,8 @@
       "sha256": "56da0e5e747b76e98e20cce321c62d0a46516fc542195aee06fd51cf961fb4ae"
     },
     "firmware/p4/waveshare-esp32-p4-4.3-espnow.bin": {
-      "size": 3511744,
-      "sha256": "de15ba706122ad50403ead62a817ab4303a277e6ba94c7f5b3c8b0e3727dbff3"
+      "size": 3560448,
+      "sha256": "478beee5cc1d46d5de4ce0b1ae1a54771d4f3f470bbf761d7f194c118d63dea2"
     }
   },
   "provenance_copies": {

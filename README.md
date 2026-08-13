@@ -60,6 +60,20 @@ It checks the SHA-256 digest of every binary. Do not mix images from another
 ESP-Hosted release or replace only `network_adapter.bin`: the host RPC protocol
 and C6 implementation must remain matched.
 
+### Import The Latest Local Waveshare Build
+
+After building the sibling `lvgl_micropython` checkout, synchronize its latest
+Waveshare ESP-NOW image into this installer with one command:
+
+```bash
+python update_firmware.py --sync-lvgl ../lvgl_micropython
+```
+
+The command verifies the producer's `.sha256` file when present, copies
+`build_artifacts/waveshare-esp32-p4-4.3-espnow.bin`, records the source Git
+commit, updates the packaged size and SHA-256, and verifies every installer
+artifact. Commit the resulting binary and manifest changes together.
+
 ## Install
 
 The standalone package in `packages/esp32-p4-firmware-installer` contains
