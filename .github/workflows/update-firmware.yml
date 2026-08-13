@@ -46,7 +46,18 @@ jobs:
             `lvgl_micropython` release `${{ inputs.producer_tag }}`.
 
             The importer verified image hashes and ESP-Hosted/C6 compatibility.
-            Merge only after the firmware set passes hardware smoke tests.
+
+            - [ ] Producer tag/commit match the manifest
+            - [ ] Four P4 SHA-256 values recorded
+            - [ ] Generic standard boot/REPL/VFS passed
+            - [ ] Generic ESP-NOW Wi-Fi/ESP-NOW passed
+            - [ ] Waveshare standard display/touch/audio/SD/RTC passed
+            - [ ] Waveshare ESP-NOW board/radio validation passed
+            - [ ] App `0x500000` and VFS `0x510000` confirmed
+            - [ ] All four packaged installer selections passed
+            - [ ] Board revisions, tester, and results recorded
+
+            Merge only after the exact imported set passes this checklist.
           add-paths: |
             packages/esp32-p4-firmware-installer/firmware-manifest.json
             packages/esp32-p4-firmware-installer/firmware/p4/*.bin

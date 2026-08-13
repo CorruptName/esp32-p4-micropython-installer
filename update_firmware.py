@@ -27,6 +27,12 @@ P4_PACKAGE_PATHS = {
     "firmware/p4/waveshare-esp32-p4-4.3.bin",
     "firmware/p4/waveshare-esp32-p4-4.3-espnow.bin",
 }
+REQUIRED_FLASH_LAYOUT = {
+    "flash_size_mb": 32,
+    "app_offset": "0x10000",
+    "app_size": "0x500000",
+    "vfs_offset": "0x510000",
+}
 
 
 def sha256(path: Path) -> str:
@@ -97,6 +103,8 @@ def sync_producer_release(manifest: dict, requested_tag: str) -> None:
 
         producer = index["producer"]
         compatibility = index["radio_compatibility"]
+        if index.get("flash_layout") != REQUIRED_FLASH_LAYOUT:
+            raise RuntimeError("Producer release has an unsupported flash layout")
         if (
             producer["esp_hosted_commit"]
             != manifest["sources"]["esp_hosted"]["commit"]

@@ -26,6 +26,19 @@ so this step does not depend on a board-specific filesystem offset.
 - Artifact sizes and SHA-256 values recorded in `firmware-manifest.json`; every
   image is checked before the first write
 
+The manifest maps the four menu choices to these pinned files:
+
+| Device | Standard | ESP-NOW |
+| --- | --- | --- |
+| Generic ESP32-P4 | `firmware/p4/esp32-p4.bin` | `firmware/p4/esp32-p4-espnow.bin` |
+| Waveshare 4.3-inch | `firmware/p4/waveshare-esp32-p4-4.3.bin` | `firmware/p4/waveshare-esp32-p4-4.3-espnow.bin` |
+
+When present, `release.firmware_source` records the immutable producer tag and
+commit for the complete four-image set. Such producer imports are accepted only
+with app size `0x500000` and FAT VFS at `0x510000`; their Waveshare profiles are
+PPA-disabled and frame-completion-safe. If `release.firmware_source` is absent,
+this is a legacy package and those newer guarantees must not be inferred.
+
 The package was hardware-validated with ESP-IDF 5.5.1 and the custom
 ESP-Hosted 2.7.0 fork at commit
 `dd95bdf3316fc8c6110b387855033a26c0aa2447`.
@@ -39,6 +52,10 @@ Requirements:
   for installation, verification, or the MicroPython REPL.
 - Internet access on the first run if `esptool` and `pyserial` are not already
   installed
+
+All firmware payloads and hashes are bundled and flashing never downloads
+firmware. For a completely offline installation, install the pinned Python
+dependencies in advance; otherwise the launcher may contact PyPI on first run.
 
 Run:
 

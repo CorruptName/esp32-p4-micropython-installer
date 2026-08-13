@@ -12,13 +12,14 @@ MicroPython ESP-NOW API on the P4.
 
 ## Compatibility
 
-This package is a coordinated firmware pair. Use it only with P4 firmware built
-from these revisions:
+This package is a coordinated firmware pair. Exact P4 producer, MicroPython,
+LVGL, ESP-IDF, and ESP-Hosted revisions are recorded in
+`packages/esp32-p4-firmware-installer/firmware-manifest.json`. For imported
+producer sets, `release.firmware_source` identifies the immutable tag and
+commit. The radio compatibility anchors are:
 
 - ESP-Hosted fork: `CorruptName/esp-hosted-mcu`, commit
   `dd95bdf3316fc8c6110b387855033a26c0aa2447`
-- MicroPython fork: `CorruptName/micropython`, commit
-  `43eedf776127d47235550afb8e8c0010061c0a3c`
 - ESP-IDF: `v5.5.1`
 - ESP-Hosted protocol baseline: `2.7.0`, plus the custom ESP-NOW proxy
 
@@ -101,6 +102,10 @@ workflow.
 
 Source revisions, board mappings, artifact sizes, and SHA-256 hashes are pinned
 in `packages/esp32-p4-firmware-installer/firmware-manifest.json`.
+After a producer import, its `release.firmware_source` entry is the source of
+truth for the exact immutable firmware tag and commit. See
+`docs/RELEASING.md` for the complete producer, hardware-validation, import, and
+installer-tagging process.
 
 On Linux:
 
@@ -114,6 +119,20 @@ On Windows, run `install_firmware.bat` from the same package directory. The
 installer provisions the selected P4 MicroPython image and optionally updates
 and verifies the matched C6 firmware first. It does not back up or restore
 existing P4 flash.
+
+The four bundled P4 selections are:
+
+| Device | Standard | ESP-NOW |
+| --- | --- | --- |
+| Generic ESP32-P4 | `firmware/p4/esp32-p4.bin` | `firmware/p4/esp32-p4-espnow.bin` |
+| Waveshare 4.3-inch | `firmware/p4/waveshare-esp32-p4-4.3.bin` | `firmware/p4/waveshare-esp32-p4-4.3-espnow.bin` |
+
+Producer imports replace and verify all four images atomically and reject a
+producer set unless it declares the fixed `0x500000` application partition and
+FAT VFS at `0x510000`. Both Waveshare producer profiles use the validated
+PPA-disabled, frame-completion-safe DSI configuration. Until
+`release.firmware_source` exists in the package manifest, treat checked-in
+images as a legacy set rather than claiming the new producer-release contract.
 
 The board must be placed in its download/boot mode before each P4 flash or
 provisioning operation. The installer never flashes the C6 directly; the temporary P4

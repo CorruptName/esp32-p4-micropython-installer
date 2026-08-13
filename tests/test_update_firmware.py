@@ -59,6 +59,7 @@ class ProducerReleaseImportTests(unittest.TestCase):
                     "esp_hosted_protocol": "2.7.0",
                     "c6_elf_sha256": manifest["c6"]["elf_sha256"],
                 },
+                "flash_layout": update_firmware.REQUIRED_FLASH_LAYOUT,
                 "artifacts": artifacts,
             }
             index_path = assets_dir / update_firmware.PRODUCER_RELEASE_INDEX

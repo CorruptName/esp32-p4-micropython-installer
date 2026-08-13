@@ -1,9 +1,14 @@
 # Waveshare ESP32-P4 4.3-inch examples
 
-These examples target the Waveshare ESP32-P4-WIFI6-Touch-LCD-4.3 firmware on
-the `waveshare-esp32-p4-4.3` branch. Flash the current
-`waveshare-esp32-p4-4.3-espnow.bin` image at offset `0x0` before
-running them. The root README contains the complete build and flash commands.
+These examples target the Waveshare ESP32-P4-WIFI6-Touch-LCD-4.3. Install a
+named immutable installer release and select the Waveshare target. Display,
+touch, audio, SD, and RTC examples work with either Waveshare choice;
+`espnow_scanner.py` and `wizmote_listener.py` require the ESP-NOW choice and
+the matching C6 firmware installed by this package.
+
+The installer root README contains provisioning instructions. Direct producer
+flashing should use an explicit `firmware-v*` release with `SHA256SUMS`
+verification, never an unversioned loose binary.
 
 Install `mpremote` on the computer connected to the board:
 
@@ -123,5 +128,5 @@ backup battery.
 ## Requirements
 
 - Waveshare ESP32-P4 4.3" display with LVGL support
-- MicroPython firmware with ESP-NOW support
-- A second ESP-NOW device running the companion beacon for discovery
+- ESP-NOW firmware only for `espnow_scanner.py` and `wizmote_listener.py`
+- A second ESP-NOW device running the companion beacon only for discovery
