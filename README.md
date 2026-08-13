@@ -60,19 +60,25 @@ It checks the SHA-256 digest of every binary. Do not mix images from another
 ESP-Hosted release or replace only `network_adapter.bin`: the host RPC protocol
 and C6 implementation must remain matched.
 
-### Import The Latest Local Waveshare Build
+### Import A Committed Firmware Release
 
-After building the sibling `lvgl_micropython` checkout, synchronize its latest
-Waveshare ESP-NOW image into this installer with one command:
+The `lvgl_micropython` producer publishes all four installer-compatible P4
+images, checksums, and source metadata from committed `firmware-v*` tags. Import
+an explicit immutable producer release with:
 
 ```bash
-python update_firmware.py --sync-lvgl ../lvgl_micropython
+python update_firmware.py --sync-release firmware-v1.0.0
 ```
 
-The command verifies the producer's `.sha256` file when present, copies
-`build_artifacts/waveshare-esp32-p4-4.3-espnow.bin`, records the source Git
-commit, updates the packaged size and SHA-256, and verifies every installer
-artifact. Commit the resulting binary and manifest changes together.
+`--sync-release latest` can resolve the newest producer release as a
+convenience, but the resolved immutable tag and commit are written into the
+installer manifest. The importer rejects partial sets and verifies all four P4
+images plus ESP-Hosted/C6 compatibility before replacing any bundled file.
+Commit and release the resulting installer changes only after hardware testing.
+
+The installer intentionally does not download firmware while flashing. Release
+packages remain offline, reproducible, and pinned to one coordinated firmware
+set.
 
 ## Install
 

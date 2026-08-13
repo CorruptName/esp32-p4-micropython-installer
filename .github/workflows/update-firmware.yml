@@ -1,0 +1,52 @@
+name: Import producer firmware release
+
+on:
+  workflow_dispatch:
+    inputs:
+      producer_tag:
+        description: Immutable lvgl_micropython firmware release tag
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Import complete producer release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python update_firmware.py --sync-release "${{ inputs.producer_tag }}"
+
+      - name: Validate installer package
+        run: |
+          python -m unittest discover -s tests
+          python update_firmware.py
+          python tools/build_release.py
+          unzip -t packages/esp32-p4-firmware-installer.zip
+
+      - name: Open reviewable firmware update
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: firmware/${{ inputs.producer_tag }}
+          delete-branch: true
+          commit-message: Import firmware ${{ inputs.producer_tag }}
+          title: Import firmware ${{ inputs.producer_tag }}
+          body: |
+            Imports all four P4 images from the immutable
+            `lvgl_micropython` release `${{ inputs.producer_tag }}`.
+
+            The importer verified image hashes and ESP-Hosted/C6 compatibility.
+            Merge only after the firmware set passes hardware smoke tests.
+          add-paths: |
+            packages/esp32-p4-firmware-installer/firmware-manifest.json
+            packages/esp32-p4-firmware-installer/firmware/p4/*.bin

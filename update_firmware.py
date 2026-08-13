@@ -6,21 +6,27 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
-import subprocess
 import sys
+import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 PACKAGE_DIR = PACKAGE_ROOT / "packages" / "esp32-p4-firmware-installer"
 MANIFEST_PATH = PACKAGE_DIR / "firmware-manifest.json"
-WAVESHARE_ESPNOW_PACKAGE_PATH = (
-    "firmware/p4/waveshare-esp32-p4-4.3-espnow.bin"
-)
-WAVESHARE_ESPNOW_BUILD_PATH = (
-    "build_artifacts/waveshare-esp32-p4-4.3-espnow.bin"
-)
+PRODUCER_REPOSITORY = "CorruptName/lvgl_micropython"
+PRODUCER_RELEASE_INDEX = "firmware-release.json"
+P4_PACKAGE_PATHS = {
+    "firmware/p4/esp32-p4.bin",
+    "firmware/p4/esp32-p4-espnow.bin",
+    "firmware/p4/waveshare-esp32-p4-4.3.bin",
+    "firmware/p4/waveshare-esp32-p4-4.3-espnow.bin",
+}
 
 
 def sha256(path: Path) -> str:
@@ -31,51 +37,124 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def git_commit(repository: Path) -> str:
-    result = subprocess.run(
-        ["git", "-C", str(repository), "rev-parse", "HEAD"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout.strip()
+def github_request(url: str) -> urllib.request.Request:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "esp32-p4-micropython-installer",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return urllib.request.Request(url, headers=headers)
 
 
-def sync_lvgl_firmware(manifest: dict, repository: Path) -> None:
-    repository = repository.resolve()
-    source = repository / WAVESHARE_ESPNOW_BUILD_PATH
-    packaged = PACKAGE_DIR / WAVESHARE_ESPNOW_PACKAGE_PATH
+def download(url: str, destination: Path) -> None:
+    with urllib.request.urlopen(github_request(url)) as response:
+        destination.write_bytes(response.read())
 
-    if not source.is_file():
-        raise FileNotFoundError(
-            f"Missing lvgl_micropython build artifact: {source}"
+
+def load_release(tag: str) -> dict:
+    if tag == "latest":
+        url = (
+            f"https://api.github.com/repos/{PRODUCER_REPOSITORY}/releases"
+            "?per_page=100"
+        )
+        with urllib.request.urlopen(github_request(url)) as response:
+            releases = json.load(response)
+        for release in releases:
+            if (
+                release["tag_name"].startswith("firmware-v")
+                and not release["draft"]
+                and not release["prerelease"]
+            ):
+                return release
+        raise RuntimeError("No published firmware-v* producer release found")
+
+    endpoint = "tags/" + urllib.parse.quote(tag, safe="")
+    url = f"https://api.github.com/repos/{PRODUCER_REPOSITORY}/releases/{endpoint}"
+    with urllib.request.urlopen(github_request(url)) as response:
+        return json.load(response)
+
+
+def sync_producer_release(manifest: dict, requested_tag: str) -> None:
+    release = load_release(requested_tag)
+    tag = release["tag_name"]
+    assets = {asset["name"]: asset for asset in release["assets"]}
+    if PRODUCER_RELEASE_INDEX not in assets:
+        raise RuntimeError(
+            f"Release {tag} has no {PRODUCER_RELEASE_INDEX} asset"
         )
 
-    checksum_path = source.with_suffix(source.suffix + ".sha256")
-    source_hash = sha256(source)
-    if checksum_path.is_file():
-        recorded_hash = checksum_path.read_text(encoding="utf-8").split()[0]
-        if recorded_hash != source_hash:
+    with tempfile.TemporaryDirectory() as temporary:
+        temporary_path = Path(temporary)
+        index_path = temporary_path / PRODUCER_RELEASE_INDEX
+        download(assets[PRODUCER_RELEASE_INDEX]["browser_download_url"], index_path)
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+
+        if index.get("schema_version") != 1:
+            raise RuntimeError("Unsupported producer firmware index schema")
+
+        producer = index["producer"]
+        compatibility = index["radio_compatibility"]
+        if (
+            producer["esp_hosted_commit"]
+            != manifest["sources"]["esp_hosted"]["commit"]
+        ):
+            raise RuntimeError("ESP-Hosted producer/installer commit mismatch")
+        if compatibility["c6_elf_sha256"] != manifest["c6"]["elf_sha256"]:
+            raise RuntimeError("P4 producer release does not match bundled C6 firmware")
+
+        staged = []
+        package_paths = set()
+        for artifact in index["artifacts"].values():
+            package_path = artifact["package_path"]
+            package_paths.add(package_path)
+            filename = artifact["filename"]
+            if filename not in assets:
+                raise RuntimeError(f"Release {tag} is missing {filename}")
+
+            source = temporary_path / filename
+            download(assets[filename]["browser_download_url"], source)
+            actual_hash = sha256(source)
+            actual_size = source.stat().st_size
+            if actual_hash != artifact["sha256"] or actual_size != artifact["size"]:
+                raise RuntimeError(f"Producer artifact verification failed: {filename}")
+            staged.append((source, package_path, artifact))
+
+        if package_paths != P4_PACKAGE_PATHS:
+            missing = sorted(P4_PACKAGE_PATHS - package_paths)
+            extra = sorted(package_paths - P4_PACKAGE_PATHS)
             raise RuntimeError(
-                f"Build checksum mismatch: expected {recorded_hash}, got {source_hash}"
+                f"Producer release is not a complete P4 set; missing={missing}, extra={extra}"
             )
 
-    packaged.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, packaged)
+        for source, package_path, artifact in staged:
+            destination = PACKAGE_DIR / package_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+            manifest["artifacts"][package_path] = {
+                "size": artifact["size"],
+                "sha256": artifact["sha256"],
+            }
+            print(f"SYNCED   {tag}/{artifact['filename']}")
 
-    manifest["sources"]["lvgl_micropython"]["commit"] = git_commit(repository)
-    manifest["artifacts"][WAVESHARE_ESPNOW_PACKAGE_PATH] = {
-        "size": packaged.stat().st_size,
-        "sha256": source_hash,
-    }
-
-    print(f"SYNCED   {source}")
-    print(f"  target: {packaged}")
-    print(f"  sha256: {source_hash}")
-    print(
-        "  source: "
-        f"{manifest['sources']['lvgl_micropython']['commit']}"
-    )
+        manifest["sources"]["lvgl_micropython"]["commit"] = producer["commit"]
+        manifest["sources"]["micropython"]["commit"] = producer[
+            "micropython_commit"
+        ]
+        manifest["sources"]["lvgl"] = {
+            "repository": "https://github.com/lvgl/lvgl",
+            "commit": producer["lvgl_commit"],
+        }
+        manifest["toolchain"]["esp_idf"]["commit"] = producer[
+            "esp_idf_commit"
+        ]
+        manifest["release"]["firmware_source"] = {
+            "repository": f"https://github.com/{PRODUCER_REPOSITORY}",
+            "tag": tag,
+            "commit": producer["commit"],
+        }
 
 
 def parse_args() -> argparse.Namespace:
@@ -83,12 +162,12 @@ def parse_args() -> argparse.Namespace:
         description="Synchronize and verify coordinated firmware artifacts."
     )
     parser.add_argument(
-        "--sync-lvgl",
-        type=Path,
-        metavar="REPOSITORY",
+        "--sync-release",
+        metavar="TAG",
         help=(
-            "copy the latest Waveshare ESP-NOW build from an "
-            "lvgl_micropython checkout and update its manifest metadata"
+            "import and pin all four P4 images from an immutable "
+            "lvgl_micropython firmware release; use 'latest' to resolve the "
+            "newest release before pinning its exact tag and commit"
         ),
     )
     return parser.parse_args()
@@ -100,11 +179,11 @@ def main() -> int:
     with MANIFEST_PATH.open(encoding="utf-8") as manifest_file:
         manifest = json.load(manifest_file)
 
-    if args.sync_lvgl is not None:
+    if args.sync_release is not None:
         try:
-            sync_lvgl_firmware(manifest, args.sync_lvgl)
-        except (FileNotFoundError, RuntimeError, subprocess.CalledProcessError) as error:
-            print(f"Unable to synchronize lvgl_micropython firmware: {error}")
+            sync_producer_release(manifest, args.sync_release)
+        except (KeyError, RuntimeError, urllib.error.URLError) as error:
+            print(f"Unable to synchronize producer firmware release: {error}")
             return 1
 
         MANIFEST_PATH.write_text(
