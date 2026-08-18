@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import time
@@ -36,6 +38,17 @@ FAILURE_MARKERS = {
     "C6 ELF identity mismatch",
     "C6 OTA activation did not produce a working ESP-NOW service",
 }
+DOWNLOAD_MODE_MARKERS = (
+    "waiting for download",
+    "DOWNLOAD(USB",
+    "boot:0x7",
+)
+RUNNING_APP_MARKERS = (
+    "MicroPython",
+    ">>>",
+)
+LISTEN_SECONDS = 2.5
+HINT_AFTER_SECONDS = 20.0
 
 
 def sha256(path: Path) -> str:
@@ -155,6 +168,135 @@ def esptool_erase_command(port: str) -> list[str]:
     ]
 
 
+def probe_download_mode(candidate: str) -> tuple[bool, str]:
+    listened, error = listen_for_download_mode(candidate)
+    if listened is not None:
+        return listened, error
+    return sync_download_mode(candidate)
+
+
+# Opening a CDC port on Linux asserts DTR/RTS, which resets the P4 and makes the
+# ROM reprint its banner, so hold both lines low and just read what it says.
+def listen_for_download_mode(candidate: str) -> tuple[bool | None, str]:
+    try:
+        import serial
+    except ImportError as error:
+        raise RuntimeError(
+            "pyserial is required. Install it with: python -m pip install pyserial"
+        ) from error
+
+    handle = serial.Serial()
+    handle.port = candidate
+    handle.baudrate = 115200
+    handle.timeout = 0.5
+    handle.dtr = False
+    handle.rts = False
+    try:
+        handle.open()
+    except serial.SerialException as error:
+        return False, f"{candidate}: {error}"
+    try:
+        deadline = time.monotonic() + LISTEN_SECONDS
+        buffer = b""
+        while time.monotonic() < deadline:
+            buffer += handle.read(256)
+            text = buffer.decode("utf-8", "replace")
+            if any(marker in text for marker in DOWNLOAD_MODE_MARKERS):
+                return True, ""
+            if any(marker in text for marker in RUNNING_APP_MARKERS):
+                return False, f"{candidate}: board is running firmware, not the ROM loader"
+    finally:
+        handle.close()
+    if not buffer.strip():
+        return None, ""
+    return False, f"{candidate}: no download-mode banner in {buffer[-80:]!r}"
+
+
+def sync_download_mode(candidate: str) -> tuple[bool, str]:
+    probe_command = [
+        sys.executable,
+        "-m",
+        "esptool",
+        "--chip",
+        "esp32p4",
+        "-p",
+        candidate,
+        "--before",
+        "no-reset",
+        "--after",
+        "no-reset",
+        "--connect-attempts",
+        "3",
+        "chip-id",
+    ]
+    try:
+        result = subprocess.run(
+            probe_command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"{candidate}: esptool did not respond within 30s"
+    if result.returncode == 0:
+        return True, ""
+    output = result.stdout.decode("utf-8", "replace").strip().splitlines()
+    detail = summarize_esptool_error(output) or f"exit code {result.returncode}"
+    return False, f"{candidate}: {detail}"
+
+
+# esptool ends failures with a docs URL, so skip the boilerplate and report the
+# line that actually names the fault.
+def summarize_esptool_error(output: list[str]) -> str:
+    noise = ("for troubleshooting steps visit", "esptool.py v", "esptool v")
+    lines = [
+        line.strip()
+        for line in output
+        if line.strip() and not line.strip().lower().startswith(noise)
+    ]
+    if not lines:
+        return ""
+    for line in reversed(lines):
+        if "error" in line.lower() or "failed" in line.lower():
+            return line
+    return lines[-1]
+
+
+def download_mode_hints(candidate: str | None, last_error: str) -> list[str]:
+    hints: list[str] = []
+    if last_error:
+        hints.append(f"Last probe error: {last_error}")
+    if sys.platform != "linux":
+        return hints
+    if candidate and os.path.exists(candidate) and not os.access(candidate, os.R_OK | os.W_OK):
+        hints.append(
+            f"No read/write access to {candidate}. Run: sudo usermod -aG dialout $USER "
+            "then log out and back in."
+        )
+    if shutil.which("systemctl"):
+        active = subprocess.run(
+            ["systemctl", "is-active", "--quiet", "ModemManager"],
+            check=False,
+        )
+        if active.returncode == 0:
+            hints.append(
+                "ModemManager is running and claims new /dev/ttyACM* ports for a few "
+                "seconds, which blocks esptool. Stop it for the install: "
+                "sudo systemctl stop ModemManager"
+            )
+    if shutil.which("lsmod"):
+        modules = subprocess.run(
+            ["lsmod"], check=False, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+        )
+        if b"brltty" in modules.stdout:
+            hints.append(
+                "brltty is loaded and is known to hijack ESP32 USB serial ports: "
+                "sudo apt remove brltty"
+            )
+    return hints
+
+
 def wait_for_download_mode(port: str, message: str) -> str:
     try:
         from serial.tools import list_ports
@@ -168,41 +310,38 @@ def wait_for_download_mode(port: str, message: str) -> str:
     print(message)
     print("Waiting for a new download-mode serial port; no keyboard input is required...")
     last_devices: tuple[str, ...] = ()
+    last_error = ""
+    last_candidate: str | None = None
+    started = time.monotonic()
+    hinted = False
     while True:
         available = {item.device for item in list_ports.comports()}
         new_ports = sorted(available - original_ports)
         reused_port = [port] if port in available else []
         candidates = tuple(dict.fromkeys(new_ports + reused_port))
         if candidates != last_devices:
-            print("Checking download-mode ports: " + ", ".join(candidates))
+            print("Checking download-mode ports: " + (", ".join(candidates) or "(none)"))
             last_devices = candidates
 
         for candidate in candidates:
-            probe_command = [
-                sys.executable,
-                "-m",
-                "esptool",
-                "--chip",
-                "esp32p4",
-                "-p",
-                candidate,
-                "--before",
-                "no-reset",
-                "--after",
-                "no-reset",
-                "--connect-attempts",
-                "1",
-                "chip-id",
-            ]
-            result = subprocess.run(
-                probe_command,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-            if result.returncode == 0:
+            last_candidate = candidate
+            detected, error = probe_download_mode(candidate)
+            if detected:
                 print(f"P4 bootloader detected on {candidate}.")
                 return candidate
+            if error != last_error:
+                print(f"  probe failed: {error}")
+            last_error = error
+
+        if not hinted and time.monotonic() - started > HINT_AFTER_SECONDS:
+            hinted = True
+            hints = download_mode_hints(last_candidate, last_error)
+            if hints:
+                print()
+                print("The board has not answered yet. Possible causes:")
+                for hint in hints:
+                    print(f"  - {hint}")
+                print()
         time.sleep(0.5)
 
 
